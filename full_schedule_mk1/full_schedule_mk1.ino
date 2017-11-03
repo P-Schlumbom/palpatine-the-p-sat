@@ -7,6 +7,7 @@
 #include <Adafruit_GPS.h> //GPS
 #include <Adafruit_BMP280.h> //Barometer & Thermometer
 #include <Scheduler.h>
+#include <SD.h>
 
 //DEFINE
 #define GPSSerial Serial1
@@ -24,9 +25,11 @@ Adafruit_GPS GPS(&GPSSerial); //GPS
 Adafruit_BMP280 bmp; //BMP
 
 //CONSTANTS
-const float AGCUTOFF = 0.1 // if the measured Gs fall below this value, the apogee is assumed to have been reached.
-const float VELCUTOFF = 0.3 // if the measured velocity falls below this value, the end of the flight is assumed to have been reached.
-const float SMOOTHING = 0.05 // for smoothing velocity data
+const float AGCUTOFF = 0.1; // if the measured Gs fall below this value, the apogee is assumed to have been reached.
+const float VELCUTOFF = 0.3; // if the measured velocity falls below this value, the end of the flight is assumed to have been reached.
+const float SMOOTHING = 0.05; // for smoothing velocity data
+const int chipSelect = 10; // for the SD card
+const String logFile = "datalog.txt"; // name of file to which data will be written
 
 //GLOBAL VARIABLES
 String stage = "launch";
@@ -53,39 +56,78 @@ int parse_mode(String mode){
     return 2;
 }
 
+//LOG TO SD CARD
+void log_data(String data){
+  File dataFile = SD.open(logFile, FILE_WRITE);
+  if (datafile) {
+    dataFile.println(data);
+    dataFile.close();
+    Serial.println(data);
+  } else {
+    Serial.println("ERROR OPENING " + logFile);
+  }
+}
+
 //SENSOR SETUP
 void init_sensors()
 {
-  //if there are problems detecting any of the sensors...
+  //SD card stuff
+  Serial.println("CHECKING FOR SD CARD:");
+  if (!SD.begin(chipSelect)) {
+    Serial.println("ERROR CARD FAILED/NOT PRESENT");
+    return;
+  } else {
+    Serial.println("CONNECTION CONFIRMED.");
+  }
+
+  // IMU stuff
+  log_data("CHECKING FOR ACCELEROMETER:");
   if(!accel.begin())
   {
-    Serial.println(F("WARNING NO LSM303 DETECTED -- CHECK WIRING"));
+    log_data("ERROR NO LSM303 DETECTED -- CHECK WIRING");
     while(1);
+  } else {
+    log_data("CONNECTION CONFIRMED.");
   }
+  
+  log_data("CHECKING FOR MAGNETOMETER:");
   if(!mag.begin())
   {
-    Serial.println("WARNING NO LSM303 DETECTED -- CHECK WIRING");
+    log_data("ERROR NO LSM303 DETECTED -- CHECK WIRING");
     while(1);
+  } else {
+    log_data("CONNECTION CONFIRMED.");
   }
+
+  log_data("CHECKING FOR GYROSCOPE:");
   if(!gyro.begin()){
-    Serial.println("WARNING NO L3GD20 DETECTED -- CHECK WIRING");
+    log_data("ERROR NO L3GD20 DETECTED -- CHECK WIRING");
     while(1);
+  } else {
+    log_data("CONNECTION CONFIRMED.");
   }
+  
+  //BMP SETUP
+  log_data("CHECKING FOR BMP:");
+  if (!bmp.begin()) {
+    log_data("ERROR NO BMP280 DETECTED -- CHECK WIRING");
+    while(1);
+  } else {
+    log_data("CONNECTION CONFIRMED.");
+  }
+  groundLevelPressure = bmp.readPressure() / 100;
+  
   //GPS SETUP
+  log_data("SETTING UP GPS:");
   GPS.begin(9600);
   GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
   GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
   GPS.sendCommand(PGCMD_ANTENNA);
-  //BMP SETUP
-  if (!bmp.begin()) {
-    Serial.println("WARNING NO BMP280 DETECTED -- CHECK WIRING");
-    while(1);
-  }
-  groundLevelPressure = bmp.readPressure() / 100;
+  log_data("DONE.");
 }
 
 void change_mode(String newMode){
-  Serial.println("Switching from " + stage + " mode to " + newMode + " mode");
+  log_data("Switching from " + stage + " mode to " + newMode + " mode");
   stage = newMode;
 }
 
@@ -96,7 +138,7 @@ void setup() {
   //Serial.begin(9600);
   Serial.begin(115200);
   init_sensors();
-  Serial.println("Current mode: " + stage);
+  log_data("Current mode: " + stage);
 }
 
 void loop() {
@@ -144,7 +186,7 @@ void launch_sequence(){
       return; 
   }
   if (timer > millis()) timer = millis();
-  // approximately every 2 seconds or so, print out the current stats
+  // approximately every second or so, check current stats
   if (millis() - timer > 1000) {
     timer = millis(); // reset the timer
     if (GPS.fix) {
@@ -219,7 +261,15 @@ void descent_sequence(){
     //_____________________END TEMP AND BARO SECTION_________________//
     
     //_____________________DATAWRITE SECTION_____________________//
+    //GPSTime, Accel, xAcc, yAcc, zAcc, Mag, xMag, yMag, zMag, Gyro, xGyro, yGyro, zGyro, GPS, lat, long, alt, vel, BMP, temp, press
+    String inputString = gpsTime + ",ACCEL:,"+String(xAccel)+","+String(yAccel)+","+String(zAccel)+
+      ",MAG:,"+String(xMag)+","+String(yMag)+","+String(zMag)+
+      ",GYRO:,"+String(xGyro)+","+String(yGyro)+","+String(zGyro)+
+      ",BMP:,"+String(temperature)+","+String(pressure)+
+      ",GPS:,"+latitude+","+longitude+","+String(altitude)+","+String(velocity);
+    log_data(inputString);
     //_____________________END DATAWRITE SECTION_________________//
+    
     //_____________________TRANSMISSION SECTION_____________________//
     //_____________________END TRANSMISSION SECTION_________________//
   }

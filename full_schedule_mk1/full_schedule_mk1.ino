@@ -59,7 +59,7 @@ int parse_mode(String mode){
 //LOG TO SD CARD
 void log_data(String data){
   File dataFile = SD.open(logFile, FILE_WRITE);
-  if (datafile) {
+  if (dataFile) {
     dataFile.println(data);
     dataFile.close();
     Serial.println(data);
@@ -143,7 +143,7 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  switch(stage){
+  switch(parse_mode(stage)){
     case 0: //what to do before the rocket has reached apogee, i.e. pre-launch and launch.
     {
       launch_sequence();
@@ -200,6 +200,8 @@ void launch_sequence(){
 void descent_sequence(){
   sensors_event_t event;
   bool velocityStop = false;
+
+  float altitude = 10000;
   
   char c = GPS.read();
   if (GPSECHO)
@@ -240,7 +242,6 @@ void descent_sequence(){
     String gpsTime = String(GPS.hour) + ":" + String(GPS.minute) + ":" + String(GPS.seconds) + "." + String(GPS.milliseconds);
     String latitude = "NA";
     String longitude = "NA";
-    float altitude = 10000;
     float velocity = 10000;
 
     if(GPS.fix) {

@@ -163,6 +163,7 @@ void change_mode(String newMode){
 }
 
 void setup() {
+  delay(5000);
   Serial.begin(115200);
   init_sensors();
   log_data("Current mode: " + stage);
@@ -385,7 +386,13 @@ void descent_sequence(){
   //_________________DETECT LANDING____________________//
   if (velocityStop) { 
     //stop video
-    change_mode("landing"); 
+    //change_mode("landing"); 
+    if (!landed){
+      toggleVideo = true;
+      videoTimer = millis();
+      landed =  true;
+    }
+    aPassed=false;
   }
   //_________________END DETECT LANDING________________//
 }

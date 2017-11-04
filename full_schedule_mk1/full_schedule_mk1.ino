@@ -72,7 +72,7 @@ int parse_mode(String mode){
 void log_data(String data){
   File emergencyFile = SD.open(emergencyLogFile, FILE_WRITE);
   if (emergencyFile) {
-    //emergencyFile.println(data);
+    emergencyFile.println(data);
     emergencyFile.close();
     Serial.println(data);
   } else {
@@ -81,7 +81,7 @@ void log_data(String data){
   if (aPassed) {
     File dataFile = SD.open(logFile, FILE_WRITE);
     if (dataFile) {
-      //dataFile.println(data);
+      dataFile.println(data);
       dataFile.close();
       //Serial.println(data);
     } else {
@@ -163,9 +163,6 @@ void change_mode(String newMode){
 }
 
 void setup() {
-#ifndef ESP8266
-  while (!Serial); //pauses board until console opens
-#endif
   Serial.begin(115200);
   init_sensors();
   log_data("Current mode: " + stage);

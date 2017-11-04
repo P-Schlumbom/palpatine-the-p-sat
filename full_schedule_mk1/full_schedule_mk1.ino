@@ -34,7 +34,6 @@ const int videoTrigger = 750; // the number of milliseconds used to trigger a vi
 const String emergencyLogFile = "edatalog.txt"; // name of file to which data will be constantly written
 const String logFile = "datalog.txt"; // name of file to which data will be written
 
-bool camSchedule[] = {false, false, false, false, false}; // 0:photo1(500m), 1:photo2(500m), 2:photo3(300m), 3:photo4(300m), 4:videostart(30m)
 
 //GLOBAL VARIABLES
 String stage = "launch";
@@ -50,13 +49,9 @@ bool aPassed = false; //set to true once at apogee
 bool fCPassed = false; //set to true once below 500m
 bool tCPassed = false; //set to true once below 300m
 bool tDPassed = false; //set to true once below 30m
+bool landed = false;
 bool takePhoto = false; //set to true to take photo
 bool toggleVideo = false; //set to true to start/stop video
-
-//dataVars
-float acceleration[3];
-float magnetometer[3];
-float gyroscope[3];
 
 //CALCULATE MAGNITUDE OF 3-D FLOAT VECTOR
 float tdm(float x, float y, float z){
@@ -198,7 +193,7 @@ void loop() {
 
   //manage Camera
   if(takePhoto){ //once photo has been triggered, takePhoto will be set back to false
-    takePhoto = manage_cam(photoTimer, photoTrigger);
+    takePhoto = manage_double_cam(photoTimer, photoTrigger);
   }
   if(toggleVideo){ //once video has been triggered, toggleVideo will be set back to false
     toggleVideo = manage_cam(videoTimer, videoTrigger);
@@ -367,7 +362,7 @@ void descent_sequence(){
   }
 
   //_________________DETECT 500M_______________________//
-  if (bmp.readAltitude(groundLevelPressure) < 500 && !fCPassed){
+  if (bmp.readAltitude(groundLevelPressure) < 500 && !fCPassed && !takePhoto){
     fCPassed = true;
     takePhoto = true;
     photoTimer = millis();
@@ -375,7 +370,7 @@ void descent_sequence(){
   }
   //_________________END DETECT 500M___________________//
   //_________________DETECT 300M_______________________//
-  if ((altitude - groundLevelAltitude) < 300 && !tCPassed){
+  if ((altitude - groundLevelAltitude) < 300 && !tCPassed && !takePhoto){
     tCPassed = true;
     takePhoto = true;
     photoTimer = millis();
@@ -383,11 +378,10 @@ void descent_sequence(){
   }
   //_________________END DETECT 300M___________________//
   //_________________DETECT 30M________________________//
-  if ((altitude - groundLevelAltitude) < 30 && !tDPassed){
+  if ((altitude - groundLevelAltitude) < 30 && !tDPassed && !takePhoto){
     tDPassed = true;
     toggleVideo = true;
     videoTimer = millis();
-    camSchedule[4] = true;
     //start video
   }
   //_________________END DETECT 30M____________________//
@@ -412,12 +406,39 @@ bool manage_cam(uint32_t t, int triggerLimit){
   return true;
 }
 
+bool manage_double_cam(uint32_t t, int triggerLimit){ // for triggering the camera twice in a row
+  int intermission = 1000;
+  bool a = false;
+  bool b = false;
+  if (t > millis()) t = millis();
+  digitalWrite(trig, LOW);
+  digitalWrite(led, LOW);
+  if(millis() - t > triggerLimit && !a){
+    //t = millis(); //reset timer
+    digitalWrite(trig, HIGH);
+    digitalWrite(led, HIGH);
+    a = true;
+  }
+  if(millis() - t > triggerLimit + intermission && !b){
+    //t = millis(); //reset timer
+    digitalWrite(trig, LOW);
+    digitalWrite(led, LOW);
+    b = true;
+  }
+  if(millis() - t > triggerLimit + intermission + triggerLimit){
+    t = millis(); //reset timer
+    digitalWrite(trig, HIGH);
+    digitalWrite(led, HIGH);
+    return false;
+  }
+  return true;
+}
+
 void landing_sequence(){
-  if (camSchedule){
-    
+  if (!landed){
     toggleVideo = true;
     videoTimer = millis();
-    camSchedule[4] = false;
+    landed =  true;
   }
   //the end of all things
 }

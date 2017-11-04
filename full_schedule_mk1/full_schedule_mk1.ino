@@ -29,6 +29,7 @@ const float AGCUTOFF = 0.1; // if the measured Gs fall below this value, the apo
 const float VELCUTOFF = 0.3; // if the measured velocity falls below this value, the end of the flight is assumed to have been reached.
 const float SMOOTHING = 0.05; // for smoothing velocity data
 const int chipSelect = 10; // for the SD card
+const String emergencyLogFile = "edatalog.txt"; // name of file to which data will be constantly written
 const String logFile = "datalog.txt"; // name of file to which data will be written
 
 //GLOBAL VARIABLES
@@ -36,10 +37,16 @@ String stage = "launch";
 uint32_t timer = millis();
 float groundLevelPressure = 1013.25;
 float groundLevelAltitude = 10000;
-float gVelocity = 0.2; //by maintaining a global velocity value, in-flight data smoothing can be achieved.
+float gVelocity = 0.5; //by maintaining a global velocity value, in-flight data smoothing can be achieved.
+bool aPassed = false; //set to true once at apogee
 bool fCPassed = false; //set to true once below 500m
 bool tCPassed = false; //set to true once below 300m
 bool tDPassed = false; //set to true once below 30m
+
+//dataVars
+float acceleration[3];
+float magnetometer[3];
+float gyroscope[3];
 
 //CALCULATE MAGNITUDE OF 3-D FLOAT VECTOR
 float tdm(float x, float y, float z){
@@ -58,13 +65,23 @@ int parse_mode(String mode){
 
 //LOG TO SD CARD
 void log_data(String data){
-  File dataFile = SD.open(logFile, FILE_WRITE);
-  if (dataFile) {
-    dataFile.println(data);
-    dataFile.close();
+  File emergencyFile = SD.open(emergencyLogFile, FILE_WRITE);
+  if (emergencyFile) {
+    //emergencyFile.println(data);
+    emergencyFile.close();
     Serial.println(data);
   } else {
-    Serial.println("ERROR OPENING " + logFile);
+    Serial.println("ERROR OPENING " + emergencyLogFile);
+  }
+  if (aPassed) {
+    File dataFile = SD.open(logFile, FILE_WRITE);
+    if (dataFile) {
+      //dataFile.println(data);
+      dataFile.close();
+      //Serial.println(data);
+    } else {
+      Serial.println("ERROR OPENING " + logFile);
+    }
   }
 }
 
@@ -128,6 +145,7 @@ void init_sensors()
 
 void change_mode(String newMode){
   log_data("Switching from " + stage + " mode to " + newMode + " mode");
+  log_data("Global values are: groundLevelPressure=" + String(groundLevelPressure) + ", groundLevelAltitude=" + String(groundLevelAltitude) + ", gVelocity=" + String(gVelocity));
   stage = newMode;
 }
 
@@ -135,7 +153,6 @@ void setup() {
 #ifndef ESP8266
   while (!Serial); //pauses board until console opens
 #endif
-  //Serial.begin(9600);
   Serial.begin(115200);
   init_sensors();
   log_data("Current mode: " + stage);
@@ -160,21 +177,23 @@ void loop() {
     }
     break;
   }
+  
 }
 
 void launch_sequence(){
   sensors_event_t event;
   accel.getEvent(&event);
 
-  float x = event.acceleration.x;
-  float y = event.acceleration.y;
-  float z = event.acceleration.z;
-  float totalAcceleration = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
+  float xAccel = event.acceleration.x;
+  float yAccel = event.acceleration.y;
+  float zAccel = event.acceleration.z;
+  float totalAcceleration = sqrt(pow(xAccel, 2) + pow(yAccel, 2) + pow(zAccel, 2));
   float totalGs = totalAcceleration / 9.81;
 
   //When apogee is reached, 0Gs are experienced and the Palpatine switches to descent mode
   if (totalGs < AGCUTOFF){
     change_mode("descent");
+    aPassed = true;
   }
 
   //_______________________GPS SEGMENT - LOWEST MEASURED ALTITUDE ASSUMED TO BE BASELINE_________
@@ -189,11 +208,53 @@ void launch_sequence(){
   // approximately every second or so, check current stats
   if (millis() - timer > 1000) {
     timer = millis(); // reset the timer
-    if (GPS.fix) {
-      float alt = GPS.altitude;
-      if (alt < groundLevelAltitude)
-        groundLevelAltitude = GPS.altitude;
+    //_____________________MAGNETOMETER SECTION_____________________//
+    mag.getEvent(&event);
+  
+    float xMag = event.magnetic.x;
+    float yMag = event.magnetic.y;
+    float zMag = event.magnetic.z;
+    //note: magnetism provided in uT
+    //_____________________END MAGNETOMETER SECTION_________________//
+    //_____________________GYROSCOPE SECTION_____________________//
+    gyro.getEvent(&event);
+    
+    float xGyro = event.gyro.x;
+    float yGyro = event.gyro.y;
+    float zGyro = event.gyro.z;
+    //note: gyroscope data given in rads^-1
+    //_____________________END GYROSCOPE SECTION_________________//
+    //_____________________GPS SECTION_____________________//
+    String gpsTime = String(GPS.hour) + ":" + String(GPS.minute) + ":" + String(GPS.seconds) + "." + String(GPS.milliseconds);
+    String latitude = "NA";
+    String longitude = "NA";
+    float velocity = 10000;
+    float altitude = 10000;
+
+    if(GPS.fix) {
+      latitude = String(GPS.latitude) + GPS.lat;
+      longitude = String(GPS.longitude) + GPS.lon;
+      velocity = GPS.speed;
+      altitude = GPS.altitude;
+
+      if (altitude < groundLevelAltitude)
+        groundLevelAltitude = altitude;
     }
+    //_____________________END GPS SECTION_________________//
+    //_____________________TEMP AND BARO SECTION_____________________//
+    float temperature = bmp.readTemperature(); // in °C
+    float pressure = bmp.readPressure(); // in Pa
+    //_____________________END TEMP AND BARO SECTION_________________//
+    
+    //_____________________DATAWRITE SECTION_____________________//
+    //GPSTime, Accel, xAcc, yAcc, zAcc, Mag, xMag, yMag, zMag, Gyro, xGyro, yGyro, zGyro, BMP, temp, press, GPS, lat, long, alt, vel
+    String inputString = gpsTime + ",ACCEL:,"+String(xAccel)+","+String(yAccel)+","+String(zAccel)+
+      ",MAG:,"+String(xMag)+","+String(yMag)+","+String(zMag)+
+      ",GYRO:,"+String(xGyro)+","+String(yGyro)+","+String(zGyro)+
+      ",BMP:,"+String(temperature)+","+String(pressure)+
+      ",GPS:,"+latitude+","+longitude+","+String(altitude)+","+String(velocity);
+    log_data(inputString);
+    //_____________________END DATAWRITE SECTION_________________//
   }
 }
 
@@ -221,6 +282,7 @@ void descent_sequence(){
     float yAccel = event.acceleration.y;
     float zAccel = event.acceleration.z;
     //note: acceleration provided in ms^-2
+    //get_acceleration(&event);
     //_____________________END ACCELERATION SECTION_________________//
     //_____________________MAGNETOMETER SECTION_____________________//
     mag.getEvent(&event);
@@ -229,6 +291,7 @@ void descent_sequence(){
     float yMag = event.magnetic.y;
     float zMag = event.magnetic.z;
     //note: magnetism provided in uT
+    //get_magnetometer(&event);
     //_____________________END MAGNETOMETER SECTION_________________//
     //_____________________GYROSCOPE SECTION_____________________//
     gyro.getEvent(&event);
@@ -237,6 +300,7 @@ void descent_sequence(){
     float yGyro = event.gyro.y;
     float zGyro = event.gyro.z;
     //note: gyroscope data given in rads^-1
+    //get_gyroscope(&event);
     //_____________________END GYROSCOPE SECTION_________________//
     //_____________________GPS SECTION_____________________//
     String gpsTime = String(GPS.hour) + ":" + String(GPS.minute) + ":" + String(GPS.seconds) + "." + String(GPS.milliseconds);
@@ -262,17 +326,19 @@ void descent_sequence(){
     //_____________________END TEMP AND BARO SECTION_________________//
     
     //_____________________DATAWRITE SECTION_____________________//
-    //GPSTime, Accel, xAcc, yAcc, zAcc, Mag, xMag, yMag, zMag, Gyro, xGyro, yGyro, zGyro, GPS, lat, long, alt, vel, BMP, temp, press
+    //GPSTime, Accel, xAcc, yAcc, zAcc, Mag, xMag, yMag, zMag, Gyro, xGyro, yGyro, zGyro, BMP, temp, press, GPS, lat, long, alt, vel
     String inputString = gpsTime + ",ACCEL:,"+String(xAccel)+","+String(yAccel)+","+String(zAccel)+
       ",MAG:,"+String(xMag)+","+String(yMag)+","+String(zMag)+
       ",GYRO:,"+String(xGyro)+","+String(yGyro)+","+String(zGyro)+
       ",BMP:,"+String(temperature)+","+String(pressure)+
       ",GPS:,"+latitude+","+longitude+","+String(altitude)+","+String(velocity);
+    /*String inputString = gpsTime + ",ACCEL:,"+String(acceleration[0])+","+String(acceleration[1])+","+String(acceleration[2])+
+      ",MAG:,"+String(magnetometer[0])+","+String(magnetometer[1])+","+String(magnetometer[2])+
+      ",GYRO:,"+String(gyroscope[0])+","+String(gyroscope[1])+","+String(gyroscope[2])+
+      ",BMP:,"+String(temperature)+","+String(pressure)+
+      ",GPS:,"+latitude+","+longitude+","+String(altitude)+","+String(velocity);*/
     log_data(inputString);
     //_____________________END DATAWRITE SECTION_________________//
-    
-    //_____________________TRANSMISSION SECTION_____________________//
-    //_____________________END TRANSMISSION SECTION_________________//
   }
 
   //_________________DETECT 500M_______________________//
@@ -301,7 +367,40 @@ void descent_sequence(){
   //_________________END DETECT LANDING________________//
 }
 
+/*void get_acceleration(sensors_event_t* event){
+  acceleration[0] = &event.acceleration.x;
+  acceleration[1] = &event.acceleration.y;
+  acceleration[2] = &event.acceleration.z;
+  //note: acceleration provided in ms^-2
+}
+
+void get_magnetometer(sensors_event_t* event){
+  magnetometer[0] = &event.magnetic.x;
+  magnetometer[1] = &event.magnetic.y;
+  magnetometer[2] = &event.magnetic.z;
+  //note: magnetism provided in uT
+}
+
+void get_gyroscope(sensors_event_t* event){
+  gyroscope[0] = &event.gyro.x;
+  gyroscope[1] = &event.gyro.y;
+  gyroscope[2] = &event.gyro.z;
+  //note: gyroscope data given in rads^-1
+}*/
+
+void get_gps(){
+  
+}
+
+void get_bmp(){
+  
+}
+
+/*void datawrite(data){
+  
+}*/
+
 void landing_sequence(){
-  //end all things
+  //the end of all things
 }
 

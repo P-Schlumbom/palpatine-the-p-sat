@@ -29,12 +29,20 @@ const float AGCUTOFF = 0.1; // if the measured Gs fall below this value, the apo
 const float VELCUTOFF = 0.3; // if the measured velocity falls below this value, the end of the flight is assumed to have been reached.
 const float SMOOTHING = 0.05; // for smoothing velocity data
 const int chipSelect = 10; // for the SD card
+const int photoTrigger = 50; // the number of milliseconds used to trigger photo
+const int videoTrigger = 750; // the number of milliseconds used to trigger a video
 const String emergencyLogFile = "edatalog.txt"; // name of file to which data will be constantly written
 const String logFile = "datalog.txt"; // name of file to which data will be written
 
+bool camSchedule[] = {false, false, false, false, false}; // 0:photo1(500m), 1:photo2(500m), 2:photo3(300m), 3:photo4(300m), 4:videostart(30m)
+
 //GLOBAL VARIABLES
 String stage = "launch";
-uint32_t timer = millis();
+uint32_t timer = millis(); // used for timing the primary loop
+uint32_t photoTimer = millis(); // to be used for triggering photos
+uint32_t videoTimer = millis(); // to be used for triggering videos
+int trig = 6;
+int led = 1;
 float groundLevelPressure = 1013.25;
 float groundLevelAltitude = 10000;
 float gVelocity = 0.5; //by maintaining a global velocity value, in-flight data smoothing can be achieved.
@@ -42,6 +50,8 @@ bool aPassed = false; //set to true once at apogee
 bool fCPassed = false; //set to true once below 500m
 bool tCPassed = false; //set to true once below 300m
 bool tDPassed = false; //set to true once below 30m
+bool takePhoto = false; //set to true to take photo
+bool toggleVideo = false; //set to true to start/stop video
 
 //dataVars
 float acceleration[3];
@@ -141,6 +151,14 @@ void init_sensors()
   GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
   GPS.sendCommand(PGCMD_ANTENNA);
   log_data("DONE.");
+
+  //CAMERA SETUP
+  log_data("SETTING UP CAMERA:");
+  pinMode(led, OUTPUT);
+  pinMode(trig, OUTPUT);
+  digitalWrite(led, HIGH);
+  digitalWrite(trig, HIGH);
+  log_data("DONE.");
 }
 
 void change_mode(String newMode){
@@ -177,7 +195,14 @@ void loop() {
     }
     break;
   }
-  
+
+  //manage Camera
+  if(takePhoto){ //once photo has been triggered, takePhoto will be set back to false
+    takePhoto = manage_cam(photoTimer, photoTrigger);
+  }
+  if(toggleVideo){ //once video has been triggered, toggleVideo will be set back to false
+    toggleVideo = manage_cam(videoTimer, videoTrigger);
+  }
 }
 
 void launch_sequence(){
@@ -344,18 +369,25 @@ void descent_sequence(){
   //_________________DETECT 500M_______________________//
   if (bmp.readAltitude(groundLevelPressure) < 500 && !fCPassed){
     fCPassed = true;
+    takePhoto = true;
+    photoTimer = millis();
     //take 2 photos
   }
   //_________________END DETECT 500M___________________//
   //_________________DETECT 300M_______________________//
   if ((altitude - groundLevelAltitude) < 300 && !tCPassed){
     tCPassed = true;
+    takePhoto = true;
+    photoTimer = millis();
     //take 2 photos
   }
   //_________________END DETECT 300M___________________//
   //_________________DETECT 30M________________________//
   if ((altitude - groundLevelAltitude) < 30 && !tDPassed){
     tDPassed = true;
+    toggleVideo = true;
+    videoTimer = millis();
+    camSchedule[4] = true;
     //start video
   }
   //_________________END DETECT 30M____________________//
@@ -367,40 +399,26 @@ void descent_sequence(){
   //_________________END DETECT LANDING________________//
 }
 
-/*void get_acceleration(sensors_event_t* event){
-  acceleration[0] = &event.acceleration.x;
-  acceleration[1] = &event.acceleration.y;
-  acceleration[2] = &event.acceleration.z;
-  //note: acceleration provided in ms^-2
+bool manage_cam(uint32_t t, int triggerLimit){
+  if (t > millis()) t = millis();
+  digitalWrite(trig, LOW);
+  digitalWrite(led, LOW);
+  if(millis() - t > triggerLimit){
+    t = millis(); //reset timer
+    digitalWrite(trig, HIGH);
+    digitalWrite(led, HIGH);
+    return false;
+  }
+  return true;
 }
-
-void get_magnetometer(sensors_event_t* event){
-  magnetometer[0] = &event.magnetic.x;
-  magnetometer[1] = &event.magnetic.y;
-  magnetometer[2] = &event.magnetic.z;
-  //note: magnetism provided in uT
-}
-
-void get_gyroscope(sensors_event_t* event){
-  gyroscope[0] = &event.gyro.x;
-  gyroscope[1] = &event.gyro.y;
-  gyroscope[2] = &event.gyro.z;
-  //note: gyroscope data given in rads^-1
-}*/
-
-void get_gps(){
-  
-}
-
-void get_bmp(){
-  
-}
-
-/*void datawrite(data){
-  
-}*/
 
 void landing_sequence(){
+  if (camSchedule){
+    
+    toggleVideo = true;
+    videoTimer = millis();
+    camSchedule[4] = false;
+  }
   //the end of all things
 }
 

@@ -1,0 +1,3 @@
+- go to Google Earth
+- go to Menu -> Settings and activate the option that allows you to upload .kml files
+- go to My Places -> upload kml files and upload the file. Google will handle the rest for you.
